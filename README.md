@@ -1,134 +1,150 @@
-# Go2 Locomotion Hackathon Project
+# Go2 Robot Training - Walk, Run, Jump
 
-Train a Unitree Go2 quadruped robot using Reinforcement Learning in the Genesis physics simulator.
+Train a Unitree Go2 quadruped robot using Reinforcement Learning (PPO) in the Genesis physics simulator.
 
 ## Quick Start
 
-### 1. Setup Environment
+### 1. Install Dependencies
 
 ```bash
-# Create conda environment
-conda create -n genesis_env python=3.10 -y
-conda activate genesis_env
+# Create and activate conda environment
+conda create -n genesis python=3.10 -y
+conda activate genesis
 
 # Install Genesis
 pip install genesis-world
 
-# Clone Genesis repository (for URDF files)
-git clone https://github.com/Genesis-Embodied-AI/Genesis.git
+# Install RL library (IMPORTANT: must be this exact version)
+pip install rsl-rl-lib==2.2.4
 
-# Install RL dependencies
-pip install tensorboard rsl-rl-lib==2.2.4
-
-# Install additional packages
-pip install matplotlib numpy torch
+# Install other dependencies
+pip install torch tensorboard
 ```
 
-### 2. Project Structure
-
-```
-Robotbuild/
-├── configs/          # Configuration files for each level
-├── envs/             # Environment implementations
-├── rewards/          # Reward function modules
-├── training/         # Training scripts
-├── evaluation/       # Evaluation scripts
-├── models/           # Saved model checkpoints
-├── logs/             # TensorBoard logs
-└── utils/            # Utility functions
-```
-
-### 3. Training
-
-**Train individual levels:**
+### 2. Train the Robot
 
 ```bash
-# Level 1: Walking (20 points)
-python training/train_level1.py --headless
+cd /Users/aks/Desktop/Robotbuild
 
-# Level 2: Running (40 points) - CRITICAL!
-python training/train_level2.py --headless
+# Train walking (stable locomotion at 0.3-0.8 m/s)
+python train.py --mode walk
 
-# Level 3: Circle Walking (10 bonus points)
-python training/train_level3.py --headless
+# Train running (fast locomotion at 1.0-2.5 m/s)
+python train.py --mode run
 
-# Level 4: Spin in Place (10 bonus points)
-python training/train_level4.py --headless
+# Train jumping
+python train.py --mode jump
+
+# Train all modes sequentially
+python train.py --mode all
 ```
 
-**Train all levels sequentially:**
+#### Training Options
 
 ```bash
-python training/train_all.py
+python train.py --mode walk \
+    --num_envs 4096 \        # Number of parallel environments (default: 4096)
+    --max_iterations 300 \   # Training iterations (default: 300)
+    --viewer \               # Show visualization during training
+    --resume                 # Resume from latest checkpoint
 ```
 
-### 4. Monitor Training
+**For machines without GPU:**
+```bash
+python train.py --mode walk --cpu --num_envs 64
+```
+
+### 3. Monitor Training
 
 ```bash
 tensorboard --logdir=logs/
 ```
 
-### 5. Evaluation
+Open http://localhost:6006 in your browser.
 
-After training, evaluate your models:
+### 4. Evaluate Trained Models
 
-```python
-from evaluation.evaluator import Evaluator, load_policy
-from envs.walk_env import WalkEnv
-from configs.level1_walk import WalkConfig
+```bash
+# Evaluate a trained model with visualization
+python evaluate.py --checkpoint logs/go2_walk_XXXXXX/
 
-# Load environment and policy
-config = WalkConfig()
-env = WalkEnv(num_envs=1, headless=False)
-policy = load_policy('models/level1_walk/final_model.pt',
-                     config.num_observations,
-                     config.num_joints,
-                     config.network)
-
-# Run evaluation
-evaluator = Evaluator(env, policy)
-metrics = evaluator.evaluate_level1()
+# Run more episodes
+python evaluate.py --checkpoint logs/go2_run_XXXXXX/ --episodes 10
 ```
 
-## Challenge Levels
+## Training Modes
 
-| Level | Task | Target | Points |
-|-------|------|--------|--------|
-| 1 | Walking | 0.5-1.0 m/s | 20 |
-| 2 | Running | ≥2.0 m/s | 40 |
-| 3 | Circle | R=2m, low RMSE | 10 (bonus) |
-| 4 | Spin | High ω, v=0 | 10 (bonus) |
-| - | Presentation | - | 20 |
+| Mode | Speed Target | Description |
+|------|--------------|-------------|
+| walk | 0.3-0.8 m/s | Stable, energy-efficient walking |
+| run  | 1.0-2.5 m/s | Fast running with dynamic gait |
+| jump | N/A | Jumping with stable landing |
 
-**Total: 100 points**
+## Project Structure
 
-## Key Files
+```
+Robotbuild/
+├── train.py          # Main training script
+├── evaluate.py       # Model evaluation script
+├── go2_env.py        # Environment with all reward functions
+├── urdf/             # Robot model files
+│   ├── go2/          # Go2 robot URDF
+│   └── plane/        # Ground plane URDF
+├── logs/             # Training logs and checkpoints
+└── models/           # Saved models
+```
 
-- `configs/base_config.py` - Shared hyperparameters
-- `envs/base_go2_env.py` - Base environment class
-- `rewards/walk_rewards.py` - Level 1 reward function
-- `rewards/run_rewards.py` - Level 2 reward function
-- `training/train_level2.py` - Critical training script (40 pts!)
+## Reward Functions
+
+The environment includes comprehensive reward functions:
+
+**Locomotion rewards:**
+- `tracking_lin_vel` - Track commanded velocity
+- `tracking_ang_vel` - Track commanded turning
+- `forward_vel` - Reward forward motion (run mode)
+
+**Stability penalties:**
+- `lin_vel_z` - Penalize vertical bouncing
+- `ang_vel_xy` - Penalize roll/pitch rotation
+- `orientation` - Penalize tilting
+- `base_height` - Maintain proper height
+
+**Smoothness penalties:**
+- `action_rate` - Penalize jerky movements
+- `dof_acc` - Penalize joint acceleration
+- `energy` - Penalize energy consumption
+
+**Jump-specific:**
+- `jump_height` - Reward height achieved
+- `air_time` - Reward time in air
+- `land_stable` - Reward stable landing
+
+## Troubleshooting
+
+**"No module named genesis"**
+```bash
+pip install genesis-world
+```
+
+**"Please install rsl-rl-lib==2.2.4"**
+```bash
+pip uninstall rsl-rl rsl_rl  # Remove any old versions
+pip install rsl-rl-lib==2.2.4
+```
+
+**Training is very slow**
+- Use GPU: remove `--cpu` flag
+- Reduce environments: `--num_envs 1024`
+
+**Robot falls immediately**
+- This is normal at the start of training
+- Wait for 50-100 iterations for learning to begin
+- Check TensorBoard for reward curves
 
 ## Tips
 
-1. **Start with Level 2** - It's worth the most points (40!)
-2. **Use curriculum learning** - Gradually increase difficulty
+1. **Start with walking** - It's the foundation for other behaviors
+2. **Use GPU** - Training is 10-100x faster on GPU
 3. **Monitor TensorBoard** - Watch for reward convergence
-4. **Tune reward weights** - Balance speed vs stability
-5. **Save checkpoints** - Resume training if needed
-
-## Architecture Documentation
-
-See `ARCHITECTURE.md` for detailed technical documentation including:
-- DC Motor control theory foundation
-- Complete observation/action space definitions
-- Reward function implementations for all levels
-- Training pipeline architecture
-- Evaluation protocols
-
-## Hackathon Philosophy
-
-> "You are not the pilot; you are the coach."
-
-Design reward functions that teach the robot desired behaviors. The RL algorithm learns the actual motor commands.
+4. **300 iterations** is usually enough for basic walking
+5. **Resume training** if you need to continue: `--resume`
